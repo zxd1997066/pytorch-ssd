@@ -6,7 +6,7 @@ from ..utils.misc import Timer
 
 
 class Predictor:
-    def __init__(self, net, size, mean=0.0, std=1.0, nms_method=None,
+    def __init__(self, net, size, mean=0.0, std=1.0, nms_method=None, args=None,
                  iou_threshold=0.45, filter_threshold=0.01, candidate_size=200, sigma=0.5, device=None):
         self.net = net
         self.transform = PredictionTransform(size, mean, std)
@@ -14,6 +14,7 @@ class Predictor:
         self.filter_threshold = filter_threshold
         self.candidate_size = candidate_size
         self.nms_method = nms_method
+        self.args = args
 
         self.sigma = sigma
         if device:
@@ -31,11 +32,15 @@ class Predictor:
         height, width, _ = image.shape
         image = self.transform(image)
         images = image.unsqueeze(0)
-        images = images.to(self.device)
+        if self.args.channels_last:
+            images = images.contiguous(memory_format=torch.channels_last)
         with torch.no_grad():
             self.timer.start()
+            images = images.to(self.device)
             scores, boxes = self.net.forward(images)
-            print("Inference time: ", self.timer.end())
+            if torch.cuda.is_available(): torch.cuda.synchronize()
+            elapsed = self.timer.end()
+            # print("Inference time: ", elapsed)
         boxes = boxes[0]
         scores = scores[0]
         if not prob_threshold:
@@ -68,4 +73,4 @@ class Predictor:
         picked_box_probs[:, 1] *= height
         picked_box_probs[:, 2] *= width
         picked_box_probs[:, 3] *= height
-        return picked_box_probs[:, :4], torch.tensor(picked_labels), picked_box_probs[:, 4]
+        return picked_box_probs[:, :4], torch.tensor(picked_labels), picked_box_probs[:, 4], elapsed

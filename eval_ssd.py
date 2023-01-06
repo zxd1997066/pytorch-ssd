@@ -12,6 +12,7 @@ import pathlib
 import numpy as np
 import logging
 import sys
+import time
 from vision.ssd.mobilenet_v2_ssd_lite import create_mobilenetv2_ssd_lite, create_mobilenetv2_ssd_lite_predictor
 from vision.ssd.mobilenetv3_ssd_lite import create_mobilenetv3_large_ssd_lite, create_mobilenetv3_small_ssd_lite
 
@@ -25,15 +26,26 @@ parser.add_argument("--dataset_type", default="voc", type=str,
                     help='Specify dataset type. Currently support voc and open_images.')
 parser.add_argument("--dataset", type=str, help="The root directory of the VOC dataset or Open Images dataset.")
 parser.add_argument("--label_file", type=str, help="The label file path.")
-parser.add_argument("--use_cuda", type=str2bool, default=True)
+parser.add_argument("--use_cuda", type=str2bool, default=False)
 parser.add_argument("--use_2007_metric", type=str2bool, default=True)
 parser.add_argument("--nms_method", type=str, default="hard")
 parser.add_argument("--iou_threshold", type=float, default=0.5, help="The threshold of Intersection over Union.")
 parser.add_argument("--eval_dir", default="eval_results", type=str, help="The directory to store evaluation results.")
 parser.add_argument('--mb2_width_mult', default=1.0, type=float,
                     help='Width Multiplifier for MobilenetV2')
+# for oob
+parser.add_argument('--device', type=str, default='cpu', help='device')
+parser.add_argument('--precision', type=str, default='float32', help='precision')
+parser.add_argument('--channels_last', type=int, default=1, help='use channels last format')
+parser.add_argument('--batch_size', type=int, default=1, help='batch_size')
+parser.add_argument('--num_iter', type=int, default=-1, help='num_iter')
+parser.add_argument('--num_warmup', type=int, default=-1, help='num_warmup')
+parser.add_argument('--profile', dest='profile', action='store_true', help='profile')
+parser.add_argument('--quantized_engine', type=str, default=None, help='quantized_engine')
+parser.add_argument('--ipex', dest='ipex', action='store_true', help='ipex')
+parser.add_argument('--jit', dest='jit', action='store_true', help='jit')
 args = parser.parse_args()
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() and args.use_cuda else "cpu")
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() and (args.use_cuda or args.device == 'cuda') else "cpu")
 
 
 def group_annotation_by_class(dataset):
@@ -119,6 +131,84 @@ def compute_average_precision_per_class(num_true_cases, gt_boxes, difficult_case
     else:
         return measurements.compute_average_precision(precision, recall)
 
+def evaluate():
+    results = []
+    total_time = 0.0
+    total_sample = 0
+    for i in range(len(dataset)):
+        if args.num_iter > 0 and i > args.num_iter: break
+        print("process image", i)
+        timer.start("Load Image")
+        image = dataset.get_image(i)
+        print("Load Image: {:4f} seconds.".format(timer.end("Load Image")))
+        timer.start("Predict")
+        boxes, labels, probs, elapsed = predictor.predict(image)
+        if args.profile:
+            args.p.step()
+        print("Iteration: {}, inference time: {} sec.".format(i, elapsed), flush=True)
+        if i >= args.num_warmup:
+            total_time += elapsed
+            total_sample += args.batch_size
+        print("Prediction: {:4f} seconds.".format(timer.end("Predict")))
+        indexes = torch.ones(labels.size(0), 1, dtype=torch.float32) * i
+        results.append(torch.cat([
+            indexes.reshape(-1, 1),
+            labels.reshape(-1, 1).float(),
+            probs.reshape(-1, 1),
+            boxes + 1.0  # matlab's indexes start from 1
+        ], dim=1))
+    results = torch.cat(results)
+    throughput = total_sample / total_time
+    latency = total_time / total_sample * 1000
+    print('inference latency: %.3f ms' % latency)
+    print('inference Throughput: %f images/s' % throughput)
+
+    for class_index, class_name in enumerate(class_names):
+        if class_index == 0: continue  # ignore background
+        prediction_path = eval_path / f"det_test_{class_name}.txt"
+        with open(prediction_path, "w") as f:
+            sub = results[results[:, 1] == class_index, :]
+            for i in range(sub.size(0)):
+                prob_box = sub[i, 2:].numpy()
+                image_id = dataset.ids[int(sub[i, 0])]
+                print(
+                    image_id + " " + " ".join([str(v) for v in prob_box]),
+                    file=f
+                )
+    aps = []
+    print("\n\nAverage Precision Per-class:")
+    for class_index, class_name in enumerate(class_names):
+        if class_index == 0:
+            continue
+        prediction_path = eval_path / f"det_test_{class_name}.txt"
+        ap = compute_average_precision_per_class(
+            true_case_stat[class_index],
+            all_gb_boxes[class_index],
+            all_difficult_cases[class_index],
+            prediction_path,
+            args.iou_threshold,
+            args.use_2007_metric
+        )
+        aps.append(ap)
+        print(f"{class_name}: {ap}")
+
+    print(f"\nAverage Precision Across All Classes:{sum(aps)/len(aps)}")
+
+def trace_handler(p):
+    output = p.key_averages().table(sort_by="self_cpu_time_total")
+    print(output)
+    import os
+    import pathlib
+    timeline_dir = str(pathlib.Path.cwd()) + '/timeline/'
+    if not os.path.exists(timeline_dir):
+        try:
+            os.makedirs(timeline_dir)
+        except:
+            pass
+    timeline_file = timeline_dir + 'timeline-' + str(torch.backends.quantized.engine) + '-' + \
+                args.net + '-' + str(p.step_num) + '-' + str(os.getpid()) + '.json'
+    p.export_chrome_trace(timeline_file)
+
 
 if __name__ == '__main__':
     eval_path = pathlib.Path(args.eval_dir)
@@ -156,64 +246,55 @@ if __name__ == '__main__':
     net = net.to(DEVICE)
     print(f'It took {timer.end("Load Model")} seconds to load the model.')
     if args.net == 'vgg16-ssd':
-        predictor = create_vgg_ssd_predictor(net, nms_method=args.nms_method, device=DEVICE)
+        predictor = create_vgg_ssd_predictor(net, nms_method=args.nms_method, device=DEVICE, args=args)
     elif args.net == 'mb1-ssd':
-        predictor = create_mobilenetv1_ssd_predictor(net, nms_method=args.nms_method, device=DEVICE)
+        predictor = create_mobilenetv1_ssd_predictor(net, nms_method=args.nms_method, device=DEVICE, args=args)
     elif args.net == 'mb1-ssd-lite':
-        predictor = create_mobilenetv1_ssd_lite_predictor(net, nms_method=args.nms_method, device=DEVICE)
+        predictor = create_mobilenetv1_ssd_lite_predictor(net, nms_method=args.nms_method, device=DEVICE, args=args)
     elif args.net == 'sq-ssd-lite':
-        predictor = create_squeezenet_ssd_lite_predictor(net,nms_method=args.nms_method, device=DEVICE)
+        predictor = create_squeezenet_ssd_lite_predictor(net,nms_method=args.nms_method, device=DEVICE, args=args)
     elif args.net == 'mb2-ssd-lite' or args.net == "mb3-large-ssd-lite" or args.net == "mb3-small-ssd-lite":
-        predictor = create_mobilenetv2_ssd_lite_predictor(net, nms_method=args.nms_method, device=DEVICE)
+        predictor = create_mobilenetv2_ssd_lite_predictor(net, nms_method=args.nms_method, device=DEVICE, args=args)
     else:
         logging.fatal("The net type is wrong. It should be one of vgg16-ssd, mb1-ssd and mb1-ssd-lite.")
         parser.print_help(sys.stderr)
         sys.exit(1)
 
-    results = []
-    for i in range(len(dataset)):
-        print("process image", i)
-        timer.start("Load Image")
-        image = dataset.get_image(i)
-        print("Load Image: {:4f} seconds.".format(timer.end("Load Image")))
-        timer.start("Predict")
-        boxes, labels, probs = predictor.predict(image)
-        print("Prediction: {:4f} seconds.".format(timer.end("Predict")))
-        indexes = torch.ones(labels.size(0), 1, dtype=torch.float32) * i
-        results.append(torch.cat([
-            indexes.reshape(-1, 1),
-            labels.reshape(-1, 1).float(),
-            probs.reshape(-1, 1),
-            boxes + 1.0  # matlab's indexes start from 1
-        ], dim=1))
-    results = torch.cat(results)
-    for class_index, class_name in enumerate(class_names):
-        if class_index == 0: continue  # ignore background
-        prediction_path = eval_path / f"det_test_{class_name}.txt"
-        with open(prediction_path, "w") as f:
-            sub = results[results[:, 1] == class_index, :]
-            for i in range(sub.size(0)):
-                prob_box = sub[i, 2:].numpy()
-                image_id = dataset.ids[int(sub[i, 0])]
-                print(
-                    image_id + " " + " ".join([str(v) for v in prob_box]),
-                    file=f
-                )
-    aps = []
-    print("\n\nAverage Precision Per-class:")
-    for class_index, class_name in enumerate(class_names):
-        if class_index == 0:
-            continue
-        prediction_path = eval_path / f"det_test_{class_name}.txt"
-        ap = compute_average_precision_per_class(
-            true_case_stat[class_index],
-            all_gb_boxes[class_index],
-            all_difficult_cases[class_index],
-            prediction_path,
-            args.iou_threshold,
-            args.use_2007_metric
-        )
-        aps.append(ap)
-        print(f"{class_name}: {ap}")
+    # NHWC
+    if args.channels_last:
+        net = net.to(memory_format=torch.channels_last)
+        print("---- Use NHWC model")
 
-    print(f"\nAverage Precision Across All Classes:{sum(aps)/len(aps)}")
+    if args.profile:
+        with torch.profiler.profile(
+            activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+            record_shapes=True,
+            schedule=torch.profiler.schedule(
+                wait=int(args.num_iter/2),
+                warmup=2,
+                active=1,
+            ),
+            on_trace_ready=trace_handler,
+        ) as p:
+            args.p = p
+            if args.precision == "bfloat16":
+                print('---- Enable AMP bfloat16')
+                with torch.cpu.amp.autocast(enabled=True, dtype=torch.bfloat16):
+                    evaluate()
+            elif args.precision == "float16":
+                print('---- Enable AMP float16')
+                with torch.cuda.amp.autocast(enabled=True, dtype=torch.float16):
+                    evaluate()
+            else:
+                evaluate()
+    else:
+        if args.precision == "bfloat16":
+            print('---- Enable AMP bfloat16')
+            with torch.cpu.amp.autocast(enabled=True, dtype=torch.bfloat16):
+                evaluate()
+        elif args.precision == "float16":
+            print('---- Enable AMP float16')
+            with torch.cuda.amp.autocast(enabled=True, dtype=torch.float16):
+                evaluate()
+        else:
+            evaluate()

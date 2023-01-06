@@ -65,9 +65,10 @@ def create_vgg_ssd(num_classes, is_test=False):
                extras, classification_headers, regression_headers, is_test=is_test, config=config)
 
 
-def create_vgg_ssd_predictor(net, candidate_size=200, nms_method=None, sigma=0.5, device=None):
+def create_vgg_ssd_predictor(net, candidate_size=200, nms_method=None, sigma=0.5, device=None, args=None):
     predictor = Predictor(net, config.image_size, config.image_mean,
                           nms_method=nms_method,
+                          args=args,
                           iou_threshold=config.iou_threshold,
                           candidate_size=candidate_size,
                           sigma=sigma,
