@@ -28,7 +28,7 @@ function main {
     for model_name in ${model_name_list[@]}
     do
         # cache
-        python eval_ssd.py --net mb1-ssd --device $device  \
+        python eval_ssd.py --net $model_name --device $device  \
             --dataset $DATASET_DIR --trained_model $CKPT_DIR \
             --label_file models/voc-model-labels.txt \
             --num_iter 3 --num_warmup 1 \
@@ -74,7 +74,7 @@ function generate_core {
             OOB_EXEC_HEADER=" CUDA_VISIBLE_DEVICES=${device_array[i]} "
         fi
         printf " ${OOB_EXEC_HEADER} \
-            python eval_ssd.py --net mb1-ssd --device $device  \
+            python eval_ssd.py --net $model_name --device $device  \
                 --dataset $DATASET_DIR --trained_model $CKPT_DIR \
                 --label_file models/voc-model-labels.txt \
                 --num_iter $num_iter --num_warmup $num_warmup \
@@ -102,7 +102,7 @@ function generate_core_launcher {
                     --log_path ${log_dir} \
                     --ninstances ${#device_array[@]} \
                     --ncore_per_instance ${real_cores_per_instance} \
-            eval_ssd.py --net mb1-ssd --device $device  \
+            eval_ssd.py --net $model_name --device $device  \
                 --dataset $DATASET_DIR --trained_model $CKPT_DIR \
                 --label_file models/voc-model-labels.txt \
                 --num_iter $num_iter --num_warmup $num_warmup \
