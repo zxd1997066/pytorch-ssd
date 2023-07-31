@@ -283,7 +283,7 @@ if __name__ == '__main__':
                     evaluate()
             elif args.precision == "float16":
                 print('---- Enable AMP float16')
-                with torch.cuda.amp.autocast(enabled=True, dtype=torch.float16):
+                with torch.cpu.amp.autocast(enabled=True, dtype=torch.half):
                     evaluate()
             else:
                 evaluate()
@@ -294,7 +294,7 @@ if __name__ == '__main__':
                 evaluate()
         elif args.precision == "float16":
             print('---- Enable AMP float16')
-            with torch.cuda.amp.autocast(enabled=True, dtype=torch.float16):
+            with torch.cpu.amp.autocast(enabled=True, dtype=torch.half):
                 evaluate()
         else:
             evaluate()
