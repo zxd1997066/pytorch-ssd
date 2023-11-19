@@ -44,6 +44,10 @@ parser.add_argument('--profile', dest='profile', action='store_true', help='prof
 parser.add_argument('--quantized_engine', type=str, default=None, help='quantized_engine')
 parser.add_argument('--ipex', dest='ipex', action='store_true', help='ipex')
 parser.add_argument('--jit', dest='jit', action='store_true', help='jit')
+parser.add_argument("--compile", action='store_true', default=False,
+                    help="enable torch.compile")
+parser.add_argument("--backend", type=str, default='inductor',
+                    help="enable torch.compile backend")
 args = parser.parse_args()
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() and (args.use_cuda or args.device == 'cuda') else "cpu")
 
@@ -135,6 +139,8 @@ def evaluate():
     results = []
     total_time = 0.0
     total_sample = 0
+    if args.compile:
+        predictor.predict = torch.compile(predictor.predict, backend=args.backend, options={"freezing": True})
     for i in range(len(dataset)):
         if args.num_iter > 0 and i > args.num_iter: break
         print("process image", i)
