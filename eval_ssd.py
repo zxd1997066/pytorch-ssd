@@ -143,7 +143,7 @@ def evaluate(val_loader):
     if args.compile:
         predictor.predict = torch.compile(predictor.predict, backend=args.backend, options={"freezing": True})
     # for i in range(len(dataset)):
-    for i, data in enumerate(loader):
+    for i, data in enumerate(val_loader):
         image, boxes, labels = data
         image = images.to(DEVICE)
         boxes = boxes.to(DEVICE)
