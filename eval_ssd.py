@@ -151,7 +151,8 @@ def evaluate(val_loader):
         # image = dataset.get_image(i)
         # print("Load Image: {:4f} seconds.".format(timer.end("Load Image")))
         timer.start("Predict")
-        boxes, labels, probs, elapsed = predictor.predict(image)
+        # boxes, labels, probs, elapsed = predictor.predict(image)
+        confidence, locations = net(image)
         if args.profile:
             args.p.step()
         print("Iteration: {}, inference time: {} sec.".format(i, elapsed), flush=True)
@@ -292,21 +293,21 @@ if __name__ == '__main__':
             if args.precision == "bfloat16":
                 print('---- Enable AMP bfloat16')
                 with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu", enabled=True, dtype=torch.bfloat16):
-                    evaluate(val_loader)
+                    evaluate(val_loader, net)
             elif args.precision == "float16":
                 print('---- Enable AMP float16')
                 with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu", enabled=True, dtype=torch.half):
-                    evaluate(val_loader)
+                    evaluate(val_loader, net)
             else:
-                evaluate(val_loader)
+                evaluate(val_loader, net)
     else:
         if args.precision == "bfloat16":
             print('---- Enable AMP bfloat16')
             with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu", enabled=True, dtype=torch.bfloat16):
-                evaluate(val_loader)
+                evaluate(val_loader, net)
         elif args.precision == "float16":
             print('---- Enable AMP float16')
             with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu", enabled=True, dtype=torch.half):
-                evaluate(val_loader)
+                evaluate(val_loader, net)
         else:
-            evaluate(val_loader)
+            evaluate(val_loader, net)
