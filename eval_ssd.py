@@ -1,4 +1,5 @@
 import torch
+from torch.utils.data import DataLoader, ConcatDataset
 from vision.ssd.vgg_ssd import create_vgg_ssd, create_vgg_ssd_predictor
 from vision.ssd.mobilenetv1_ssd import create_mobilenetv1_ssd, create_mobilenetv1_ssd_predictor
 from vision.ssd.mobilenetv1_ssd_lite import create_mobilenetv1_ssd_lite, create_mobilenetv1_ssd_lite_predictor
@@ -135,18 +136,23 @@ def compute_average_precision_per_class(num_true_cases, gt_boxes, difficult_case
     else:
         return measurements.compute_average_precision(precision, recall)
 
-def evaluate():
+def evaluate(val_loader):
     results = []
     total_time = 0.0
     total_sample = 0
     if args.compile:
         predictor.predict = torch.compile(predictor.predict, backend=args.backend, options={"freezing": True})
-    for i in range(len(dataset)):
+    # for i in range(len(dataset)):
+    for i, data in enumerate(loader):
+        image, boxes, labels = data
+        image = images.to(DEVICE)
+        boxes = boxes.to(DEVICE)
+        labels = labels.to(DEVICE)
         if args.num_iter > 0 and i > args.num_iter: break
         print("process image", i)
         timer.start("Load Image")
-        image = dataset.get_image(i)
-        print("Load Image: {:4f} seconds.".format(timer.end("Load Image")))
+        # image = dataset.get_image(i)
+        # print("Load Image: {:4f} seconds.".format(timer.end("Load Image")))
         timer.start("Predict")
         boxes, labels, probs, elapsed = predictor.predict(image)
         if args.profile:
@@ -221,6 +227,9 @@ if __name__ == '__main__':
     eval_path.mkdir(exist_ok=True)
     timer = Timer()
     class_names = [name.strip() for name in open(args.label_file).readlines()]
+    val_loader = DataLoader(args.dataset, args.batch_size,
+                            num_workers=0,
+                            shuffle=False)
 
     if args.dataset_type == "voc":
         dataset = VOCDataset(args.dataset, is_test=True)
@@ -286,21 +295,21 @@ if __name__ == '__main__':
             if args.precision == "bfloat16":
                 print('---- Enable AMP bfloat16')
                 with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu", enabled=True, dtype=torch.bfloat16):
-                    evaluate()
+                    evaluate(val_loader)
             elif args.precision == "float16":
                 print('---- Enable AMP float16')
                 with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu", enabled=True, dtype=torch.half):
-                    evaluate()
+                    evaluate(val_loader)
             else:
-                evaluate()
+                evaluate(val_loader)
     else:
         if args.precision == "bfloat16":
             print('---- Enable AMP bfloat16')
             with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu", enabled=True, dtype=torch.bfloat16):
-                evaluate()
+                evaluate(val_loader)
         elif args.precision == "float16":
             print('---- Enable AMP float16')
             with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu", enabled=True, dtype=torch.half):
-                evaluate()
+                evaluate(val_loader)
         else:
-            evaluate()
+            evaluate(val_loader)
