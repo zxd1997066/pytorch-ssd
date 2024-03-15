@@ -145,7 +145,6 @@ def evaluate(val_loader):
     # for i in range(len(dataset)):
     for i, data in enumerate(val_loader):
         image = data
-        image = image.to(DEVICE)
         if args.num_iter > 0 and i > args.num_iter: break
         print("process image", i)
         timer.start("Load Image")
