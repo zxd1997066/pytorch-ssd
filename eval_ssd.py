@@ -136,7 +136,7 @@ def compute_average_precision_per_class(num_true_cases, gt_boxes, difficult_case
     else:
         return measurements.compute_average_precision(precision, recall)
 
-def evaluate(val_loader, net):
+def evaluate(val_loader):
     net.eval()
     results = []
     total_time = 0.0
@@ -144,31 +144,29 @@ def evaluate(val_loader, net):
     if args.compile:
         predictor.predict = torch.compile(predictor.predict, backend=args.backend, options={"freezing": True})
     # for i in range(len(dataset)):
-    with torch.no_grad():
-      for i, data in enumerate(val_loader):
-          image = data
-          if args.num_iter > 0 and i > args.num_iter: break
-          print("process image", i)
-          timer.start("Load Image")
-          # image = dataset.get_image(i)
-          # print("Load Image: {:4f} seconds.".format(timer.end("Load Image")))
-          timer.start("Predict")
-          # boxes, labels, probs, elapsed = predictor.predict(image)
-          confidence, locations = net(image)
-          if args.profile:
-              args.p.step()
-          print("Iteration: {}, inference time: {} sec.".format(i, elapsed), flush=True)
-          if i >= args.num_warmup:
-              total_time += elapsed
-              total_sample += args.batch_size
-          print("Prediction: {:4f} seconds.".format(timer.end("Predict")))
-          indexes = torch.ones(labels.size(0), 1, dtype=torch.float32) * i
-          results.append(torch.cat([
-              indexes.reshape(-1, 1),
-              labels.reshape(-1, 1).float(),
-              probs.reshape(-1, 1),
-              boxes + 1.0  # matlab's indexes start from 1
-          ], dim=1))
+    for i, data in enumerate(val_loader):
+        image = data
+        if args.num_iter > 0 and i > args.num_iter: break
+        print("process image", i)
+        timer.start("Load Image")
+        # image = dataset.get_image(i)
+        # print("Load Image: {:4f} seconds.".format(timer.end("Load Image")))
+        timer.start("Predict")
+        boxes, labels, probs, elapsed = predictor.predict(image)
+        if args.profile:
+            args.p.step()
+        print("Iteration: {}, inference time: {} sec.".format(i, elapsed), flush=True)
+        if i >= args.num_warmup:
+            total_time += elapsed
+            total_sample += args.batch_size
+        print("Prediction: {:4f} seconds.".format(timer.end("Predict")))
+        indexes = torch.ones(labels.size(0), 1, dtype=torch.float32) * i
+        results.append(torch.cat([
+            indexes.reshape(-1, 1),
+            labels.reshape(-1, 1).float(),
+            probs.reshape(-1, 1),
+            boxes + 1.0  # matlab's indexes start from 1
+        ], dim=1))
     results = torch.cat(results)
     throughput = total_sample / total_time
     latency = total_time / total_sample * 1000
