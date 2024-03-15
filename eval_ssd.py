@@ -137,36 +137,38 @@ def compute_average_precision_per_class(num_true_cases, gt_boxes, difficult_case
         return measurements.compute_average_precision(precision, recall)
 
 def evaluate(val_loader, net):
+    net.eval()
     results = []
     total_time = 0.0
     total_sample = 0
     if args.compile:
         predictor.predict = torch.compile(predictor.predict, backend=args.backend, options={"freezing": True})
     # for i in range(len(dataset)):
-    for i, data in enumerate(val_loader):
-        image = data
-        if args.num_iter > 0 and i > args.num_iter: break
-        print("process image", i)
-        timer.start("Load Image")
-        # image = dataset.get_image(i)
-        # print("Load Image: {:4f} seconds.".format(timer.end("Load Image")))
-        timer.start("Predict")
-        # boxes, labels, probs, elapsed = predictor.predict(image)
-        confidence, locations = net(image)
-        if args.profile:
-            args.p.step()
-        print("Iteration: {}, inference time: {} sec.".format(i, elapsed), flush=True)
-        if i >= args.num_warmup:
-            total_time += elapsed
-            total_sample += args.batch_size
-        print("Prediction: {:4f} seconds.".format(timer.end("Predict")))
-        indexes = torch.ones(labels.size(0), 1, dtype=torch.float32) * i
-        results.append(torch.cat([
-            indexes.reshape(-1, 1),
-            labels.reshape(-1, 1).float(),
-            probs.reshape(-1, 1),
-            boxes + 1.0  # matlab's indexes start from 1
-        ], dim=1))
+    with torch.no_grad():
+      for i, data in enumerate(val_loader):
+          image = data
+          if args.num_iter > 0 and i > args.num_iter: break
+          print("process image", i)
+          timer.start("Load Image")
+          # image = dataset.get_image(i)
+          # print("Load Image: {:4f} seconds.".format(timer.end("Load Image")))
+          timer.start("Predict")
+          # boxes, labels, probs, elapsed = predictor.predict(image)
+          confidence, locations = net(image)
+          if args.profile:
+              args.p.step()
+          print("Iteration: {}, inference time: {} sec.".format(i, elapsed), flush=True)
+          if i >= args.num_warmup:
+              total_time += elapsed
+              total_sample += args.batch_size
+          print("Prediction: {:4f} seconds.".format(timer.end("Predict")))
+          indexes = torch.ones(labels.size(0), 1, dtype=torch.float32) * i
+          results.append(torch.cat([
+              indexes.reshape(-1, 1),
+              labels.reshape(-1, 1).float(),
+              probs.reshape(-1, 1),
+              boxes + 1.0  # matlab's indexes start from 1
+          ], dim=1))
     results = torch.cat(results)
     throughput = total_sample / total_time
     latency = total_time / total_sample * 1000
@@ -236,19 +238,19 @@ if __name__ == '__main__':
 
     true_case_stat, all_gb_boxes, all_difficult_cases = group_annotation_by_class(dataset)
     if args.net == 'vgg16-ssd':
-        net = create_vgg_ssd(len(class_names), is_test=True)
+        net = create_vgg_ssd(len(class_names))
     elif args.net == 'mb1-ssd':
-        net = create_mobilenetv1_ssd(len(class_names), is_test=True)
+        net = create_mobilenetv1_ssd(len(class_names))
     elif args.net == 'mb1-ssd-lite':
-        net = create_mobilenetv1_ssd_lite(len(class_names), is_test=True)
+        net = create_mobilenetv1_ssd_lite(len(class_names))
     elif args.net == 'sq-ssd-lite':
-        net = create_squeezenet_ssd_lite(len(class_names), is_test=True)
+        net = create_squeezenet_ssd_lite(len(class_names))
     elif args.net == 'mb2-ssd-lite':
-        net = create_mobilenetv2_ssd_lite(len(class_names), width_mult=args.mb2_width_mult, is_test=True)
+        net = create_mobilenetv2_ssd_lite(len(class_names), width_mult=args.mb2_width_mult)
     elif args.net == 'mb3-large-ssd-lite':
-        net = create_mobilenetv3_large_ssd_lite(len(class_names), is_test=True)
+        net = create_mobilenetv3_large_ssd_lite(len(class_names))
     elif args.net == 'mb3-small-ssd-lite':
-        net = create_mobilenetv3_small_ssd_lite(len(class_names), is_test=True)
+        net = create_mobilenetv3_small_ssd_lite(len(class_names))
     else:
         logging.fatal("The net type is wrong. It should be one of vgg16-ssd, mb1-ssd and mb1-ssd-lite.")
         parser.print_help(sys.stderr)
