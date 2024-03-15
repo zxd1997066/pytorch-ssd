@@ -143,14 +143,14 @@ def evaluate(val_loader):
     total_sample = 0
     if args.compile:
         predictor.predict = torch.compile(predictor.predict, backend=args.backend, options={"freezing": True})
-    # for i in range(len(dataset)):
-    for i, data in enumerate(val_loader):
+    for i in range(len(dataset)):
+    # for i, data in enumerate(val_loader):
         image = data
         if args.num_iter > 0 and i > args.num_iter: break
         print("process image", i)
         timer.start("Load Image")
-        # image = dataset.get_image(i)
-        # print("Load Image: {:4f} seconds.".format(timer.end("Load Image")))
+        image = dataset.get_image(i)
+        print("Load Image: {:4f} seconds.".format(timer.end("Load Image")))
         timer.start("Predict")
         boxes, labels, probs, elapsed = predictor.predict(image)
         if args.profile:
