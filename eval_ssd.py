@@ -293,21 +293,21 @@ if __name__ == '__main__':
             if args.precision == "bfloat16":
                 print('---- Enable AMP bfloat16')
                 with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu", enabled=True, dtype=torch.bfloat16):
-                    evaluate(val_loader, net)
+                    evaluate(val_loader)
             elif args.precision == "float16":
                 print('---- Enable AMP float16')
                 with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu", enabled=True, dtype=torch.half):
-                    evaluate(val_loader, net)
+                    evaluate(val_loader)
             else:
-                evaluate(val_loader, net)
+                evaluate(val_loader)
     else:
         if args.precision == "bfloat16":
             print('---- Enable AMP bfloat16')
             with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu", enabled=True, dtype=torch.bfloat16):
-                evaluate(val_loader, net)
+                evaluate(val_loader)
         elif args.precision == "float16":
             print('---- Enable AMP float16')
             with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu", enabled=True, dtype=torch.half):
-                evaluate(val_loader, net)
+                evaluate(val_loader)
         else:
-            evaluate(val_loader, net)
+            evaluate(val_loader)
