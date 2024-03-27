@@ -1,4 +1,5 @@
 import torch
+import torch._inductor
 from torch.utils.data import DataLoader, ConcatDataset
 from vision.ssd.vgg_ssd import create_vgg_ssd, create_vgg_ssd_predictor
 from vision.ssd.mobilenetv1_ssd import create_mobilenetv1_ssd, create_mobilenetv1_ssd_predictor
@@ -278,6 +279,8 @@ if __name__ == '__main__':
         print("---- Use NHWC model")
 
     if args.profile:
+        torch._inductor.config.profiler_mark_wrapper_call = True
+        torch._inductor.config.cpp.enable_kernel_profile = True
         with torch.profiler.profile(
             activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
             record_shapes=True,
