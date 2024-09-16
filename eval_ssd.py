@@ -50,6 +50,8 @@ parser.add_argument("--compile", action='store_true', default=False,
                     help="enable torch.compile")
 parser.add_argument("--backend", type=str, default='inductor',
                     help="enable torch.compile backend")
+parser.add_argument("--triton_cpu", action='store_true', default=False,
+                    help="enable triton_cpu")
 args = parser.parse_args()
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() and (args.use_cuda or args.device == 'cuda') else "cpu")
 
@@ -142,6 +144,10 @@ def evaluate(val_loader):
     results = []
     total_time = 0.0
     total_sample = 0
+    if args.triton_cpu:
+          print("run with triton cpu backend")
+          import torch._inductor.config
+          torch._inductor.config.cpu_backend="triton"
     if args.compile:
         predictor.predict = torch.compile(predictor.predict, backend=args.backend, options={"freezing": True})
     for i in range(len(dataset)):
