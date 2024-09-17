@@ -140,6 +140,7 @@ def compute_average_precision_per_class(num_true_cases, gt_boxes, difficult_case
         return measurements.compute_average_precision(precision, recall)
 
 def evaluate(val_loader):
+    import torch
     net.eval()
     results = []
     total_time = 0.0
